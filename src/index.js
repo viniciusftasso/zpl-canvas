@@ -774,8 +774,9 @@ const resolveTextMetrics = (element, height) => {
   const fontName = String(element.fontName || "").toUpperCase();
   if (BITMAP_FONT_NAMES.has(fontName)) {
     if (!element.fontWidthSpecified) {
+      const bitmapHeight = Math.max(height, 20);
       return {
-        fontHeight: height,
+        fontHeight: bitmapHeight,
         widthRatio: 1,
         family: BITMAP_FONT_FAMILY,
         weight: REGULAR_FONT_WEIGHT,
