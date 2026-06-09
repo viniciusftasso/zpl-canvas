@@ -38,11 +38,13 @@ const result = await renderZplToPngBuffer("^XA^FO40,40^A0N,40,40^FDHello^FS^XZ",
 });
 
 await fs.promises.writeFile("label.png", result.buffer);
+
+console.log(result.metadata.label.copies);
 ```
 
 Implemented or recognized command families:
 
-- Label/page: `^XA`, `^XZ`, `^PW`, `^LL`, `^LH`, `^LS`
+- Label/page: `^XA`, `^XZ`, `^PW`, `^LL`, `^LH`, `^LS`, `^PQ`
 - Fields: `^FO`, `^FT`, `^FS`, `^FD`, `^FH`, `^FR`, `^FB`
 - Fonts/text: `^CF`, `^A*`
 - Graphics: `^GB`, `^GC`, `^GE`, `^GD`, `^GF`
@@ -61,6 +63,9 @@ Compatibility notes:
 - The default canvas uses the physical label size (`labelWidthMm`,
   `labelHeightMm`, `dpmm`). Use `useZplCanvas: true` to render with `^PW/^LL`
   as the output canvas dimensions.
+- Multi-label ZPL is not expanded by `^PQ`. The render result includes
+  `metadata.labels[]` with each renderable label's `copies` value so callers can
+  decide how to print or display repeated labels.
 - Text uses a Zebra-like condensed bold system stack (`Nimbus Sans Narrow`,
   `Liberation Sans Narrow`, `Arial Narrow`, `DejaVu Sans Condensed`,
   Arial/Helvetica fallback). Zebra bitmap font parity is still incremental.

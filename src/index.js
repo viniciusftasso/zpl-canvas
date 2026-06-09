@@ -23,7 +23,6 @@ const KNOWN_NOOP_COMMANDS = new Set([
   "MN",
   "MT",
   "PR",
-  "PQ",
   "LS",
   "LT",
   "MC",
@@ -180,6 +179,17 @@ const createLabelState = (options = {}) => {
     shiftX: 0,
     elements: [],
     warnings: [],
+    metadata: {
+      copies: 1,
+      printQuantity: {
+        quantity: 1,
+        pauseAndCut: 0,
+        replicates: 0,
+        overridePause: false,
+        cutOnError: false,
+        rawParams: [],
+      },
+    },
   };
 };
 
@@ -320,6 +330,28 @@ const applyBarcodeCommand = (field, code, data, barcodeDefault = {}) => {
   };
 };
 
+const parseBooleanFlag = (value, fallback = false) => {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (!normalized) return fallback;
+  return ["Y", "YES", "1", "TRUE"].includes(normalized);
+};
+
+const parsePrintQuantity = (data) => {
+  const params = splitParams(data);
+  const quantity = Math.max(toInt(params[0], 1), 1);
+  return {
+    copies: quantity,
+    printQuantity: {
+      quantity,
+      pauseAndCut: Math.max(toInt(params[1], 0), 0),
+      replicates: Math.max(toInt(params[2], 0), 0),
+      overridePause: parseBooleanFlag(params[3]),
+      cutOnError: parseBooleanFlag(params[4]),
+      rawParams: params,
+    },
+  };
+};
+
 const applyCommand = (token, context) => {
   const { labels, resources, options } = context;
   let label = context.currentLabel;
@@ -387,6 +419,10 @@ const applyCommand = (token, context) => {
     const encoding = ["27", "28", "30"].includes(charset) ? "utf8" : "latin1";
     field.encoding = encoding;
     label.encoding = encoding;
+    return;
+  }
+  if (code === "PQ") {
+    Object.assign(label.metadata, parsePrintQuantity(data));
     return;
   }
   if (code === "FO" || code === "FT") {
@@ -717,9 +753,26 @@ const normalizeTextGlyphs = (text) =>
     .replace(/(\S)-(\S)/g, "$1\u2009\u2013\u2009$2")
     .replace(/-/g, "\u2013");
 
+const BITMAP_FONT_NAMES = new Set(["A", "B", "C", "D", "E", "F", "G", "H"]);
+
+const resolveTextMetrics = (element, height) => {
+  const width = Math.max(element.fontWidth || height, 1);
+  const fontName = String(element.fontName || "").toUpperCase();
+  if (BITMAP_FONT_NAMES.has(fontName)) {
+    return {
+      fontHeight: Math.max(Math.round(height * 1.06), 1),
+      widthRatio: Math.max(width / Math.max(height * 0.47, 1), 0.35),
+    };
+  }
+  return {
+    fontHeight: height,
+    widthRatio: Math.max(width / height, 0.35),
+  };
+};
+
 const drawText = (ctx, element) => {
-  const height = Math.max(element.fontHeight || DEFAULT_FONT_HEIGHT, 1);
-  const widthRatio = Math.max((element.fontWidth || height) / height, 0.35);
+  const requestedHeight = Math.max(element.fontHeight || DEFAULT_FONT_HEIGHT, 1);
+  const { fontHeight: height, widthRatio } = resolveTextMetrics(element, requestedHeight);
   const family = element.fontFamily || DEFAULT_FONT_FAMILY;
   const block = element.block;
   const lineHeight = height + (block?.lineSpacing || 0);
@@ -1152,12 +1205,22 @@ export const renderZplToPngBuffer = async (zpl, options = {}) => {
 
   const { canvas, warnings } = await renderLabelToCanvas(label, parsed, options);
   const buffer = await canvas.encode("png");
+  const labelsMetadata = parsed.labels.map((parsedLabel, index) => ({
+    index,
+    copies: parsedLabel.metadata?.copies || 1,
+    printQuantity: parsedLabel.metadata?.printQuantity || null,
+  }));
   return {
     buffer,
     warnings,
     width: canvas.width,
     height: canvas.height,
     labelCount: parsed.labels.length,
+    metadata: {
+      labelIndex,
+      label: labelsMetadata[labelIndex],
+      labels: labelsMetadata,
+    },
   };
 };
 
