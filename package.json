@@ -1,0 +1,39 @@
+{
+  "name": "zpl-canvas",
+  "version": "0.0.1",
+  "description": "Render ZPL labels to Canvas and PNG in native JavaScript.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check src/*.js"
+  },
+  "keywords": [
+    "zpl",
+    "zplii",
+    "labels",
+    "canvas",
+    "renderer",
+    "printing",
+    "zebra"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/viniciusftasso/zpl-canvas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/viniciusftasso/zpl-canvas/issues"
+  },
+  "homepage": "https://github.com/viniciusftasso/zpl-canvas#readme",
+  "license": "MIT",
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.0",
+    "bwip-js": "^4.11.1"
+  }
+}
