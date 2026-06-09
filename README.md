@@ -15,9 +15,9 @@ Render ZPL labels to Canvas and PNG in native JavaScript.
 
 Prototype renderer. No public API is stable yet.
 
-The current renderer parses ZPL into labels/elements and draws the first selected
-label through the Canvas 2D API. It is designed so the parser/render operations
-can be improved without changing consuming applications.
+The current renderer parses ZPL into labels/elements and draws the selected
+label through the Canvas 2D API. Multi-label ZPL is supported through the
+`labelIndex` render option, which defaults to `0`.
 
 ## Install
 
@@ -34,6 +34,7 @@ const result = await renderZplToPngBuffer("^XA^FO40,40^A0N,40,40^FDHello^FS^XZ",
   dpmm: 8,
   labelWidthMm: 101.6,
   labelHeightMm: 152.4,
+  labelIndex: 0,
 });
 
 await fs.promises.writeFile("label.png", result.buffer);
@@ -58,14 +59,13 @@ and Z64 deflate/base64 payloads.
 Compatibility notes:
 
 - The default canvas uses the physical label size (`labelWidthMm`,
-  `labelHeightMm`, `dpmm`) to match BinaryKits. Use `useZplCanvas: true` to
-  render with `^PW/^LL` as the output canvas dimensions.
+  `labelHeightMm`, `dpmm`). Use `useZplCanvas: true` to render with `^PW/^LL`
+  as the output canvas dimensions.
 - Text uses a Zebra-like condensed bold system stack (`Nimbus Sans Narrow`,
   `Liberation Sans Narrow`, `Arial Narrow`, `DejaVu Sans Condensed`,
   Arial/Helvetica fallback). Zebra bitmap font parity is still incremental.
 - `^CI28`/`^FH` UTF-8 hex sequences are decoded before drawing.
-- Code128 rendering is calibrated against BinaryKits for the common `^BY/^BC`
-  marketplace-label path.
+- Barcode rendering is still being expanded and tuned across label formats.
 
 ## Local Check
 
