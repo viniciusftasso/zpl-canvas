@@ -965,6 +965,7 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
 
   const moduleWidth = Math.max(element.moduleWidth || barcodeDefault?.moduleWidth || 2, 1);
   const scale = Math.max(moduleWidth, 1);
+  const hasHumanText = Boolean(element.printText && isOneDimensionalBarcode(element.barcodeType));
   const options = {
     bcid,
     text,
@@ -977,6 +978,9 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
     paddingheight: 0,
     backgroundcolor: "FFFFFF",
   };
+  if (hasHumanText) {
+    options.textyoffset = element.textAbove ? 1 : -2;
+  }
 
   let drawScaleX = 1;
   let drawScaleY = 1;
