@@ -13,7 +13,10 @@ const DEFAULT_FONT_HEIGHT = 30;
 const DEFAULT_FONT_WIDTH = 24;
 const DEFAULT_FONT_FAMILY =
   '"Nimbus Sans Narrow", "Liberation Sans Narrow", "Arial Narrow", "DejaVu Sans Condensed", Arial, Helvetica, sans-serif';
+const BITMAP_FONT_FAMILY =
+  '"Liberation Mono", "Courier New", Courier, monospace';
 const DEFAULT_FONT_WEIGHT = "700";
+const REGULAR_FONT_WEIGHT = "400";
 const FIELD_BLOCK_LINE_BREAK = "\uE000";
 const COMMAND_PREFIXES = new Set(["^", "~"]);
 const KNOWN_NOOP_COMMANDS = new Set([
@@ -201,10 +204,12 @@ const createFieldState = () => ({
   fontName: "0",
   fontHeight: DEFAULT_FONT_HEIGHT,
   fontWidth: DEFAULT_FONT_WIDTH,
+  fontWidthSpecified: false,
   defaultFont: {
     name: "0",
     height: DEFAULT_FONT_HEIGHT,
     width: DEFAULT_FONT_WIDTH,
+    widthSpecified: false,
   },
   block: null,
   reverse: false,
@@ -284,6 +289,7 @@ const finalizeField = (label, field) => {
       fontName: field.fontName,
       fontHeight: field.fontHeight,
       fontWidth: field.fontWidth,
+      fontWidthSpecified: field.fontWidthSpecified,
       block: field.block ? { ...field.block } : null,
       originMode: field.originMode,
     });
@@ -295,16 +301,19 @@ const finalizeField = (label, field) => {
   next.fontName = currentDefault.name;
   next.fontHeight = currentDefault.height;
   next.fontWidth = currentDefault.width;
+  next.fontWidthSpecified = currentDefault.widthSpecified;
   next.encoding = field.encoding;
   Object.assign(field, next);
 };
 
 const applyFontCommand = (field, code, data) => {
   const params = splitParams(data);
+  const widthSpecified = params.length > 2 && String(params[2] || "").trim() !== "";
   field.fontName = code.slice(1) || field.defaultFont.name;
   field.orientation = normalizeOrientation(params[0], field.orientation);
   field.fontHeight = toInt(params[1], field.defaultFont.height);
   field.fontWidth = toInt(params[2], field.fontHeight || field.defaultFont.width);
+  field.fontWidthSpecified = widthSpecified || field.defaultFont.widthSpecified;
 };
 
 const applyBarcodeCommand = (field, code, data, barcodeDefault = {}) => {
@@ -314,7 +323,8 @@ const applyBarcodeCommand = (field, code, data, barcodeDefault = {}) => {
   const height = isCode39
     ? toInt(params[2], barcodeDefault.height || 100)
     : toInt(params[1], barcodeDefault.height || 100);
-  const printText = String(params[isCode39 ? 3 : 2] || "").trim().toUpperCase() === "Y";
+  const printTextRaw = String(params[isCode39 ? 3 : 2] || "").trim().toUpperCase();
+  const printText = printTextRaw ? printTextRaw === "Y" : code === "BC";
   const above = String(params[isCode39 ? 4 : 3] || "").trim().toUpperCase() === "Y";
   const checkDigit = String(params[isCode39 ? 1 : 4] || "").trim().toUpperCase() === "Y";
   field.pendingBarcode = {
@@ -451,14 +461,17 @@ const applyCommand = (token, context) => {
   }
   if (code === "CF") {
     const [name, height, width] = splitParams(data);
+    const widthSpecified = String(width || "").trim() !== "";
     field.defaultFont = {
       name: String(name || "0").trim() || "0",
       height: toInt(height, field.defaultFont.height),
       width: toInt(width, toInt(height, field.defaultFont.width)),
+      widthSpecified,
     };
     field.fontName = field.defaultFont.name;
     field.fontHeight = field.defaultFont.height;
     field.fontWidth = field.defaultFont.width;
+    field.fontWidthSpecified = field.defaultFont.widthSpecified;
     return;
   }
   if (/^A[A-Z0-9@]$/i.test(code)) {
@@ -615,6 +628,7 @@ const withOrientation = (ctx, element, draw) => {
 
 const applyElementPaint = (ctx, element, fallback = "black") => {
   const color = element.reverse ? "white" : element.color || fallback;
+  if (element.reverse) ctx.globalCompositeOperation = "difference";
   ctx.fillStyle = color;
   ctx.strokeStyle = color;
 };
@@ -657,8 +671,8 @@ const drawBox = (ctx, element) => {
   const width = Math.max(element.width || 0, 0);
   const height = Math.max(element.height || 0, 0);
   const thickness = Math.max(element.thickness || 1, 1);
-  applyElementPaint(ctx, element);
   withOrientation(ctx, element, () => {
+    applyElementPaint(ctx, element);
     if (width > 0 && height === 0) {
       ctx.fillRect(0, 0, width, thickness);
       return;
@@ -679,8 +693,8 @@ const drawBox = (ctx, element) => {
 const drawCircle = (ctx, element) => {
   const diameter = Math.max(element.diameter || 0, 0);
   const thickness = Math.max(element.thickness || 1, 1);
-  applyElementPaint(ctx, element);
   withOrientation(ctx, element, () => {
+    applyElementPaint(ctx, element);
     ctx.lineWidth = thickness;
     ctx.beginPath();
     ctx.arc(diameter / 2, diameter / 2, Math.max((diameter - thickness) / 2, 1), 0, Math.PI * 2);
@@ -692,8 +706,8 @@ const drawEllipse = (ctx, element) => {
   const width = Math.max(element.width || 0, 0);
   const height = Math.max(element.height || 0, 0);
   const thickness = Math.max(element.thickness || 1, 1);
-  applyElementPaint(ctx, element);
   withOrientation(ctx, element, () => {
+    applyElementPaint(ctx, element);
     ctx.lineWidth = thickness;
     ctx.beginPath();
     ctx.ellipse(width / 2, height / 2, Math.max((width - thickness) / 2, 1), Math.max((height - thickness) / 2, 1), 0, 0, Math.PI * 2);
@@ -705,8 +719,8 @@ const drawDiagonal = (ctx, element) => {
   const width = Math.max(element.width || 0, 0);
   const height = Math.max(element.height || 0, 0);
   const thickness = Math.max(element.thickness || 1, 1);
-  applyElementPaint(ctx, element);
   withOrientation(ctx, element, () => {
+    applyElementPaint(ctx, element);
     ctx.lineWidth = thickness;
     ctx.beginPath();
     if (element.diagonalOrientation === "L") {
@@ -759,26 +773,38 @@ const resolveTextMetrics = (element, height) => {
   const width = Math.max(element.fontWidth || height, 1);
   const fontName = String(element.fontName || "").toUpperCase();
   if (BITMAP_FONT_NAMES.has(fontName)) {
+    if (!element.fontWidthSpecified) {
+      return {
+        fontHeight: height,
+        widthRatio: 1,
+        family: BITMAP_FONT_FAMILY,
+        weight: REGULAR_FONT_WEIGHT,
+      };
+    }
     return {
       fontHeight: Math.max(Math.round(height * 1.06), 1),
       widthRatio: Math.max(width / Math.max(height * 0.47, 1), 0.35),
+      family: DEFAULT_FONT_FAMILY,
+      weight: DEFAULT_FONT_WEIGHT,
     };
   }
   return {
     fontHeight: height,
     widthRatio: Math.max(width / height, 0.35),
+    family: DEFAULT_FONT_FAMILY,
+    weight: DEFAULT_FONT_WEIGHT,
   };
 };
 
 const drawText = (ctx, element) => {
   const requestedHeight = Math.max(element.fontHeight || DEFAULT_FONT_HEIGHT, 1);
-  const { fontHeight: height, widthRatio } = resolveTextMetrics(element, requestedHeight);
-  const family = element.fontFamily || DEFAULT_FONT_FAMILY;
+  const { fontHeight: height, widthRatio, family, weight } = resolveTextMetrics(element, requestedHeight);
+  const textFamily = element.fontFamily || family;
   const block = element.block;
   const lineHeight = height + (block?.lineSpacing || 0);
 
   ctx.save();
-  ctx.font = `${DEFAULT_FONT_WEIGHT} ${height}px ${family}`;
+  ctx.font = `${weight} ${height}px ${textFamily}`;
   ctx.textBaseline = element.originMode === "FT" ? "alphabetic" : "top";
 
   const maxWidth = block?.width ? block.width / widthRatio : 0;
@@ -1087,6 +1113,8 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
   let text = normalizeBarcodeText(element);
   let qrPayload = null;
   let code128Payload = null;
+  let separateHumanText = false;
+  let humanText = null;
   if (element.barcodeType === "BQ") {
     qrPayload = normalizeQrPayload(text, element.rawParams?.[3]);
     text = qrPayload.text;
@@ -1138,9 +1166,14 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
     } else if (isShortMixedCode) {
       drawScaleX = 1.089;
     } else if (isNumeric) {
+      if (hasHumanText) {
+        options.includetext = false;
+        separateHumanText = true;
+        humanText = text;
+      }
       options.text = `^B${text}`;
       options.parse = true;
-      drawScaleX = Math.min(1.4, 1.18 + Math.max(text.length - 10, 0) * 0.027);
+      drawScaleX = Math.min(1.4, 1.1 + Math.max(text.length - 10, 0) * 0.027);
     }
   }
   if (element.barcodeType === "BQ") {
@@ -1161,7 +1194,7 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
   try {
     const png = await bwipjs.toBuffer(options);
     const image = await loadImage(png);
-    return { image, drawScaleX, drawScaleY, moduleWidth };
+    return { image, drawScaleX, drawScaleY, moduleWidth, separateHumanText, humanText };
   } catch (error) {
     warnings.push(`Barcode ${element.barcodeType} failed: ${error?.message || "render error"}.`);
     return null;
@@ -1171,17 +1204,27 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
 const drawBarcode = async (ctx, element, barcodeDefault, warnings) => {
   const rendered = await renderBarcodeImage(element, barcodeDefault, warnings);
   if (!rendered) return;
-  const { image, drawScaleX = 1, drawScaleY = 1, moduleWidth = 2 } = rendered;
+  const {
+    image,
+    drawScaleX = 1,
+    drawScaleY = 1,
+    moduleWidth = 2,
+    separateHumanText = false,
+    humanText = null,
+  } = rendered;
   const targetWidth = image.width * drawScaleX;
   let targetHeight = image.height * drawScaleY;
+  let imageTargetHeight = targetHeight;
   let anchorHeight = targetHeight;
   if (isOneDimensionalBarcode(element.barcodeType)) {
     const barHeight = Math.max(element.height || 0, 1);
     targetHeight = barHeight;
+    imageTargetHeight = barHeight;
     anchorHeight = barHeight;
     if (element.printText) {
       const humanTextHeight = Math.round(moduleWidth * 9.3);
       targetHeight += humanTextHeight;
+      if (!separateHumanText) imageTargetHeight = targetHeight;
       if (element.textAbove) anchorHeight = targetHeight;
     }
   }
@@ -1193,15 +1236,23 @@ const drawBarcode = async (ctx, element, barcodeDefault, warnings) => {
   ctx.translate(element.x || 0, originY);
   if (orientation === "R") {
     ctx.rotate(Math.PI / 2);
-    ctx.drawImage(image, 0, -targetHeight, targetWidth, targetHeight);
+    ctx.drawImage(image, 0, -imageTargetHeight, targetWidth, imageTargetHeight);
   } else if (orientation === "I") {
     ctx.rotate(Math.PI);
-    ctx.drawImage(image, -targetWidth, -targetHeight, targetWidth, targetHeight);
+    ctx.drawImage(image, -targetWidth, -imageTargetHeight, targetWidth, imageTargetHeight);
   } else if (orientation === "B") {
     ctx.rotate((Math.PI * 3) / 2);
-    ctx.drawImage(image, -targetWidth, 0, targetWidth, targetHeight);
+    ctx.drawImage(image, -targetWidth, 0, targetWidth, imageTargetHeight);
   } else {
-    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+    ctx.drawImage(image, 0, 0, targetWidth, imageTargetHeight);
+    if (separateHumanText && humanText) {
+      const fontSize = Math.max(Math.round(moduleWidth * 9.6), 10);
+      ctx.font = `${REGULAR_FONT_WEIGHT} ${fontSize}px ${BITMAP_FONT_FAMILY}`;
+      ctx.fillStyle = "black";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(humanText, targetWidth / 2, imageTargetHeight + Math.round(moduleWidth * 2.2));
+    }
   }
   ctx.restore();
 };
