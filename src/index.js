@@ -335,6 +335,22 @@ const applyCommand = (token, context) => {
     return;
   }
 
+  if (code === "~DG") {
+    const params = splitParams(data);
+    const name = String(params[0] || "").trim().toUpperCase();
+    if (name) {
+      resources.set(name, {
+        type: "graphicField",
+        format: "A",
+        totalBytes: toInt(params[1], 0),
+        dataBytes: toInt(params[1], 0),
+        rowBytes: Math.max(toInt(params[2], 0), 0),
+        data: params.slice(3).join(","),
+      });
+    }
+    return;
+  }
+
   if (!label) {
     if (KNOWN_NOOP_COMMANDS.has(code)) return;
     label = createLabelState(options);
@@ -485,21 +501,6 @@ const applyCommand = (token, context) => {
     };
     return;
   }
-  if (code === "~DG") {
-    const params = splitParams(data);
-    const name = String(params[0] || "").trim().toUpperCase();
-    if (name) {
-      resources.set(name, {
-        type: "graphicField",
-        format: "A",
-        totalBytes: toInt(params[1], 0),
-        dataBytes: toInt(params[1], 0),
-        rowBytes: Math.max(toInt(params[2], 0), 0),
-        data: params.slice(3).join(","),
-      });
-    }
-    return;
-  }
   if (code === "XG" || code === "IM") {
     const [name, xScale, yScale] = splitParams(data);
     field.pendingGraphic = {
@@ -552,12 +553,13 @@ export const parseZpl = (zpl, options = {}) => {
   if (context.currentLabel && context.field.data) {
     finalizeField(context.currentLabel, context.field);
   }
+  const renderableLabels = labels.filter((label) => label.elements.length > 0);
 
   return {
-    labels,
+    labels: renderableLabels,
     resources: context.resources,
     tokens,
-    warnings: labels.flatMap((label) => label.warnings || []),
+    warnings: renderableLabels.flatMap((label) => label.warnings || []),
   };
 };
 
