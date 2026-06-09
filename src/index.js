@@ -991,6 +991,15 @@ const normalizeBarcodeText = (element) => {
   return String(element.data || "").trim();
 };
 
+const normalizeCode128Payload = (value, { stripZplStartCode = false } = {}) => {
+  const text = String(value || "").trim();
+  const zplStartCodeMatch = text.match(/^>([:;<=>])/);
+  return {
+    text: stripZplStartCode && zplStartCodeMatch ? text.slice(2) : text,
+    hasZplStartCode: Boolean(zplStartCodeMatch),
+  };
+};
+
 const normalizeQrPayload = (value, fallbackEclevel = "M") => {
   let text = String(value || "");
   let eclevel = String(fallbackEclevel || "M").trim().toUpperCase() || "M";
@@ -1016,9 +1025,15 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
 
   let text = normalizeBarcodeText(element);
   let qrPayload = null;
+  let code128Payload = null;
   if (element.barcodeType === "BQ") {
     qrPayload = normalizeQrPayload(text, element.rawParams?.[3]);
     text = qrPayload.text;
+  } else if (element.barcodeType === "BC") {
+    code128Payload = normalizeCode128Payload(text, {
+      stripZplStartCode: Boolean(element.printText),
+    });
+    text = code128Payload.text;
   }
   if (!text) return null;
 
@@ -1050,7 +1065,7 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
       text.length < 10 &&
       /[A-Z]/i.test(text) &&
       /\d/.test(text);
-    if (text.startsWith(">:")) {
+    if (code128Payload?.hasZplStartCode) {
       drawScaleX = 1.164;
     } else if (isShortMixedCode && /^[A-Z]{1,2}\d+$/i.test(text)) {
       options.text = `^B${text}`;
@@ -1094,13 +1109,20 @@ const drawBarcode = async (ctx, element, barcodeDefault, warnings) => {
   const { image, drawScaleX = 1, drawScaleY = 1, moduleWidth = 2 } = rendered;
   const targetWidth = image.width * drawScaleX;
   let targetHeight = image.height * drawScaleY;
+  let anchorHeight = targetHeight;
   if (isOneDimensionalBarcode(element.barcodeType)) {
-    targetHeight = Math.max(element.height || 0, 1);
-    if (element.printText) targetHeight += Math.round(moduleWidth * 9.3);
+    const barHeight = Math.max(element.height || 0, 1);
+    targetHeight = barHeight;
+    anchorHeight = barHeight;
+    if (element.printText) {
+      const humanTextHeight = Math.round(moduleWidth * 9.3);
+      targetHeight += humanTextHeight;
+      if (element.textAbove) anchorHeight = targetHeight;
+    }
   }
   const orientation = normalizeOrientation(element.orientation);
   const originY = element.originMode === "FT" && orientation === "N"
-    ? (element.y || 0) - targetHeight
+    ? (element.y || 0) - anchorHeight
     : element.y || 0;
   ctx.save();
   ctx.translate(element.x || 0, originY);
