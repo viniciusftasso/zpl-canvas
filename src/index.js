@@ -343,6 +343,7 @@ const applyCommand = (token, context) => {
   }
 
   if (code === "XZ") {
+    finalizeField(label, field);
     context.currentLabel = null;
     Object.assign(field, createFieldState());
     return;
