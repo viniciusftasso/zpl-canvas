@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Render and inspect ZPL labels directly in the browser with zpl-canvas."
+    />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23126c5a'/%3E%3Cpath d='M14 14h36v8H22v20h28v8H14z' fill='white'/%3E%3Cpath d='M28 28h20v8H28z' fill='white'/%3E%3C/svg%3E" />
+    <title>zpl-canvas demo</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>zpl-canvas</h1>
+          <p>Browser renderer for ZPL labels</p>
+        </div>
+        <div class="topbar-actions">
+          <a href="https://www.npmjs.com/package/zpl-canvas" target="_blank" rel="noreferrer">npm</a>
+          <a href="https://github.com/viniciusftasso/zpl-canvas" target="_blank" rel="noreferrer">GitHub</a>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="ZPL renderer workspace">
+        <aside class="editor-pane">
+          <div class="control-row">
+            <label for="exampleSelect">Example</label>
+            <select id="exampleSelect"></select>
+          </div>
+
+          <label class="editor-label" for="zplInput">ZPL</label>
+          <textarea id="zplInput" spellcheck="false"></textarea>
+
+          <div class="settings-grid">
+            <label>
+              <span>DPMM</span>
+              <input id="dpmmInput" type="number" min="1" step="1" value="8" />
+            </label>
+            <label>
+              <span>Width mm</span>
+              <input id="widthInput" type="number" min="1" step="0.1" value="101.6" />
+            </label>
+            <label>
+              <span>Height mm</span>
+              <input id="heightInput" type="number" min="1" step="0.1" value="152.4" />
+            </label>
+            <label>
+              <span>Label index</span>
+              <input id="labelIndexInput" type="number" min="0" step="1" value="0" />
+            </label>
+          </div>
+
+          <label class="checkbox-row">
+            <input id="useZplCanvasInput" type="checkbox" />
+            <span>Use ^PW/^LL canvas dimensions</span>
+          </label>
+
+          <div class="button-row">
+            <button id="renderButton" type="button">Render</button>
+            <button id="downloadButton" type="button">Download PNG</button>
+          </div>
+        </aside>
+
+        <section class="preview-pane">
+          <div class="preview-toolbar">
+            <div>
+              <strong id="statusText">Ready</strong>
+              <span id="sizeText"></span>
+            </div>
+            <span id="labelCountText"></span>
+          </div>
+
+          <div id="previewSurface" class="preview-surface" aria-label="Rendered label preview"></div>
+
+          <div class="details-grid">
+            <section>
+              <h2>Warnings</h2>
+              <pre id="warningsOutput">[]</pre>
+            </section>
+            <section>
+              <h2>Metadata</h2>
+              <pre id="metadataOutput">{}</pre>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -12,7 +12,9 @@
     "README.md"
   ],
   "scripts": {
-    "check": "node --check src/*.js"
+    "check": "node --check src/*.js",
+    "demo:dev": "vite --host 127.0.0.1",
+    "demo:build": "vite build"
   },
   "keywords": [
     "zpl",
@@ -42,5 +44,8 @@
     "@napi-rs/canvas": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "vite": "^8.0.16"
   }
 }

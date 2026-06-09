@@ -19,6 +19,12 @@ The current renderer parses ZPL into labels/elements and draws the selected
 label through the Canvas 2D API. Multi-label ZPL is supported through the
 `labelIndex` render option, which defaults to `0`.
 
+## Online Demo
+
+Try the browser demo:
+
+https://viniciusftasso.github.io/zpl-canvas/
+
 ## Install
 
 Browser:
