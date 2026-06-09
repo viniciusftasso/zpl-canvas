@@ -264,6 +264,7 @@ const finalizeField = (label, field) => {
     addElement(label, field, {
       type: "barcode",
       data: field.data,
+      originMode: field.originMode,
       ...field.pendingBarcode,
     });
   } else if (field.data) {
@@ -968,6 +969,7 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
     height: Math.max((element.height || barcodeDefault?.height || 100) / 8, 4),
     includetext: Boolean(element.printText),
     textxalign: "center",
+    textyalign: element.textAbove ? "above" : "below",
     paddingwidth: 0,
     paddingheight: 0,
     backgroundcolor: "FFFFFF",
@@ -1004,8 +1006,10 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
   }
   if (element.barcodeType === "BX") {
     const zplModuleSize = Math.max(toFloat(element.rawParams?.[1], scale * 2), 1);
-    options.scale = Math.max(zplModuleSize / 2, 1);
+    options.scale = Math.max(zplModuleSize, 1);
     delete options.height;
+    drawScaleX = 0.5;
+    drawScaleY = 0.5;
   }
 
   try {
@@ -1029,8 +1033,11 @@ const drawBarcode = async (ctx, element, barcodeDefault, warnings) => {
     if (element.printText) targetHeight += Math.round(moduleWidth * 9.3);
   }
   const orientation = normalizeOrientation(element.orientation);
+  const originY = element.originMode === "FT" && orientation === "N"
+    ? (element.y || 0) - targetHeight
+    : element.y || 0;
   ctx.save();
-  ctx.translate(element.x || 0, element.y || 0);
+  ctx.translate(element.x || 0, originY);
   if (orientation === "R") {
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(image, 0, -targetHeight, targetWidth, targetHeight);
