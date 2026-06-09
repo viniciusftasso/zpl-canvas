@@ -991,12 +991,73 @@ const normalizeBarcodeText = (element) => {
   return String(element.data || "").trim();
 };
 
+const ZPL_CODE128_INVOCATION_CODES = new Set(["<", "0", "=", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";"]);
+const ZPL_CODE128_CONTROL_CODES = new Set(["4", "5", "6", "7", "9", ":", ";"]);
+
 const normalizeCode128Payload = (value, { stripZplStartCode = false } = {}) => {
   const text = String(value || "").trim();
-  const zplStartCodeMatch = text.match(/^>([:;<=>])/);
+  const zplInvocations = [...text.matchAll(/>([<0=1-9:;])/g)];
+  const startCode = text.match(/^>([9:;])/)?.[1] || null;
+  const hasZplStartCode = Boolean(startCode);
+  const hasInternalInvocations = zplInvocations.some((match) => match.index > 0);
+  const shouldTranslateInvocations =
+    hasInternalInvocations || (stripZplStartCode && hasZplStartCode);
+
+  if (!shouldTranslateInvocations) {
+    return {
+      text,
+      humanText: text,
+      hasZplStartCode,
+      startCode,
+      hasInternalInvocations,
+      hasParseFnc: false,
+    };
+  }
+
+  let barcodeText = "";
+  let humanText = "";
+  let hasParseFnc = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char !== ">" || index + 1 >= text.length) {
+      barcodeText += char;
+      humanText += char;
+      continue;
+    }
+
+    const invocation = text[index + 1];
+    if (!ZPL_CODE128_INVOCATION_CODES.has(invocation)) {
+      barcodeText += char;
+      humanText += char;
+      continue;
+    }
+
+    index += 1;
+    if (invocation === "<") {
+      barcodeText += ">";
+      humanText += ">";
+    } else if (invocation === "8") {
+      barcodeText += "^FNC1";
+      hasParseFnc = true;
+    } else if (invocation === "2") {
+      barcodeText += "^FNC3";
+      hasParseFnc = true;
+    } else if (invocation === "3") {
+      barcodeText += "^FNC2";
+      hasParseFnc = true;
+    } else if (!ZPL_CODE128_CONTROL_CODES.has(invocation)) {
+      barcodeText += invocation === "=" ? "~" : "";
+      humanText += invocation === "=" ? "~" : "";
+    }
+  }
+
   return {
-    text: stripZplStartCode && zplStartCodeMatch ? text.slice(2) : text,
-    hasZplStartCode: Boolean(zplStartCodeMatch),
+    text: barcodeText,
+    humanText,
+    hasZplStartCode,
+    startCode,
+    hasInternalInvocations,
+    hasParseFnc,
   };
 };
 
@@ -1055,17 +1116,21 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
   if (hasHumanText) {
     options.textyoffset = element.textAbove ? 1 : -2;
   }
+  if (hasHumanText && code128Payload?.humanText && code128Payload.humanText !== text) {
+    options.alttext = code128Payload.humanText;
+  }
 
   let drawScaleX = 1;
   let drawScaleY = 1;
   if (element.barcodeType === "BC") {
+    if (code128Payload?.hasParseFnc) options.parsefnc = true;
     const isNumeric = /^\d+$/.test(text);
     const isShortMixedCode =
       !element.printText &&
       text.length < 10 &&
       /[A-Z]/i.test(text) &&
       /\d/.test(text);
-    if (code128Payload?.hasZplStartCode) {
+    if (code128Payload?.startCode === ":" && !code128Payload.hasInternalInvocations) {
       drawScaleX = 1.164;
     } else if (isShortMixedCode && /^[A-Z]{1,2}\d+$/i.test(text)) {
       options.text = `^B${text}`;
