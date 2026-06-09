@@ -300,10 +300,13 @@ const applyFontCommand = (field, code, data) => {
 const applyBarcodeCommand = (field, code, data, barcodeDefault = {}) => {
   const params = splitParams(data);
   const orientation = normalizeOrientation(params[0], field.orientation);
-  const height = toInt(params[1], barcodeDefault.height || 100);
-  const printText = String(params[2] || "").trim().toUpperCase() === "Y";
-  const above = String(params[3] || "").trim().toUpperCase() === "Y";
-  const checkDigit = String(params[4] || "").trim().toUpperCase() === "Y";
+  const isCode39 = code === "B3";
+  const height = isCode39
+    ? toInt(params[2], barcodeDefault.height || 100)
+    : toInt(params[1], barcodeDefault.height || 100);
+  const printText = String(params[isCode39 ? 3 : 2] || "").trim().toUpperCase() === "Y";
+  const above = String(params[isCode39 ? 4 : 3] || "").trim().toUpperCase() === "Y";
+  const checkDigit = String(params[isCode39 ? 1 : 4] || "").trim().toUpperCase() === "Y";
   field.pendingBarcode = {
     barcodeType: code,
     orientation,
