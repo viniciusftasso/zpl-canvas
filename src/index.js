@@ -836,10 +836,13 @@ const normalizeGraphicByteLength = (bytes, targetBytes) => {
   return output;
 };
 
+const getGraphicByteCount = (element) =>
+  Math.max(element.totalBytes || 0, element.dataBytes || 0, 0);
+
 const decodeGraphicPayload = (element, warnings) => {
   const rowBytes = Math.max(element.rowBytes || 0, 0);
   if (!rowBytes) return null;
-  const totalBytes = Math.max(element.totalBytes || element.dataBytes || 0, 0);
+  const totalBytes = getGraphicByteCount(element);
 
   const graphicData = String(element.data || "").trim();
   if (/^:Z64:/i.test(graphicData)) {
@@ -872,7 +875,7 @@ const createImageDataFromGraphic = (ctx, element, warnings) => {
   const rowBytes = Math.max(element.rowBytes || 0, 0);
   if (!bytes || !rowBytes) return null;
 
-  const totalBytes = Math.max(element.totalBytes || element.dataBytes || 0, 0);
+  const totalBytes = getGraphicByteCount(element);
   const width = rowBytes * 8;
   const height = Math.max(
     totalBytes ? Math.ceil(totalBytes / rowBytes) : Math.ceil(bytes.length / rowBytes),
