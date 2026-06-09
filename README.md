@@ -21,14 +21,41 @@ label through the Canvas 2D API. Multi-label ZPL is supported through the
 
 ## Install
 
+Browser:
+
 ```bash
 npm install zpl-canvas
 ```
 
-## Usage
+Node.js:
+
+```bash
+npm install zpl-canvas @napi-rs/canvas
+```
+
+`@napi-rs/canvas` is an optional peer dependency. It is only needed when
+rendering in Node.js, where there is no built-in Canvas 2D implementation.
+
+## Browser Usage
+
+```js
+import { renderZplToCanvas } from "zpl-canvas";
+
+const result = await renderZplToCanvas("^XA^FO40,40^A0N,40,40^FDHello^FS^XZ", {
+  dpmm: 8,
+  labelWidthMm: 101.6,
+  labelHeightMm: 152.4,
+  labelIndex: 0,
+});
+
+document.body.append(result.canvas);
+```
+
+## Node Usage
 
 ```js
 import { renderZplToPngBuffer } from "zpl-canvas";
+import fs from "node:fs/promises";
 
 const result = await renderZplToPngBuffer("^XA^FO40,40^A0N,40,40^FDHello^FS^XZ", {
   dpmm: 8,
@@ -37,10 +64,13 @@ const result = await renderZplToPngBuffer("^XA^FO40,40^A0N,40,40^FDHello^FS^XZ",
   labelIndex: 0,
 });
 
-await fs.promises.writeFile("label.png", result.buffer);
+await fs.writeFile("label.png", result.buffer);
 
 console.log(result.metadata.label.copies);
 ```
+
+If Node rendering is used without installing `@napi-rs/canvas`, the renderer
+throws `ZPL_CANVAS_MISSING_NODE_CANVAS` with the install command.
 
 Implemented or recognized command families:
 

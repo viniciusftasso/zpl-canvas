@@ -33,7 +33,14 @@
   "homepage": "https://github.com/viniciusftasso/zpl-canvas#readme",
   "license": "MIT",
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.0",
     "bwip-js": "^4.11.1"
+  },
+  "peerDependencies": {
+    "@napi-rs/canvas": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@napi-rs/canvas": {
+      "optional": true
+    }
   }
 }

@@ -1,6 +1,4 @@
-import { createCanvas, loadImage } from "@napi-rs/canvas";
 import bwipjs from "bwip-js";
-import zlib from "zlib";
 
 export const ZPLUMA_VERSION = "0.0.0";
 
@@ -50,6 +48,109 @@ const KNOWN_NOOP_COMMANDS = new Set([
   "ML",
   "MU",
 ]);
+
+const MISSING_NODE_CANVAS_CODE = "ZPL_CANVAS_MISSING_NODE_CANVAS";
+
+const buildMissingNodeCanvasError = (cause) => {
+  const error = new Error(
+    "Node rendering requires @napi-rs/canvas. Install it with: npm install @napi-rs/canvas"
+  );
+  error.code = MISSING_NODE_CANVAS_CODE;
+  error.cause = cause;
+  return error;
+};
+
+const hasBrowserCanvas = () =>
+  typeof document !== "undefined" && typeof document.createElement === "function";
+
+const hasOffscreenCanvas = () => typeof OffscreenCanvas !== "undefined";
+
+const createBrowserCanvas = (width, height) => {
+  if (hasBrowserCanvas()) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+  if (hasOffscreenCanvas()) return new OffscreenCanvas(width, height);
+  return null;
+};
+
+const browserCanvasToBlob = (canvas) => {
+  if (typeof canvas.convertToBlob === "function") {
+    return canvas.convertToBlob({ type: "image/png" });
+  }
+  if (typeof canvas.toBlob === "function") {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Could not encode canvas to PNG."));
+      }, "image/png");
+    });
+  }
+  return null;
+};
+
+const createBrowserCanvasAdapter = () => ({
+  createCanvas: (width, height) => createBrowserCanvas(width, height),
+  loadImage: async (source) => {
+    if (typeof createImageBitmap === "function") {
+      const blob = source instanceof Blob ? source : new Blob([source]);
+      return createImageBitmap(blob);
+    }
+    if (hasBrowserCanvas() && typeof Image !== "undefined") {
+      const blob = source instanceof Blob ? source : new Blob([source]);
+      const url = URL.createObjectURL(blob);
+      try {
+        return await new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = reject;
+          image.src = url;
+        });
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    throw new Error("Browser image loading requires createImageBitmap or Image.");
+  },
+  encodePng: async (canvas) => {
+    const blob = await browserCanvasToBlob(canvas);
+    if (!blob) {
+      throw new Error("This canvas implementation cannot encode PNG output.");
+    }
+    return blob.arrayBuffer();
+  },
+});
+
+let nodeCanvasAdapterPromise = null;
+
+const loadNodeCanvasAdapter = async () => {
+  if (!nodeCanvasAdapterPromise) {
+    nodeCanvasAdapterPromise = (async () => {
+      try {
+        const specifier = "@napi-rs/canvas";
+        const canvasModule = await import(specifier);
+        return {
+          createCanvas: canvasModule.createCanvas,
+          loadImage: canvasModule.loadImage,
+          encodePng: (canvas) => canvas.encode("png"),
+        };
+      } catch (error) {
+        throw buildMissingNodeCanvasError(error);
+      }
+    })();
+  }
+  return nodeCanvasAdapterPromise;
+};
+
+const resolveCanvasAdapter = async (options = {}) => {
+  if (options.canvasAdapter) return options.canvasAdapter;
+  const browserAdapter = createBrowserCanvasAdapter();
+  const browserCanvas = browserAdapter.createCanvas(1, 1);
+  if (browserCanvas) return browserAdapter;
+  return loadNodeCanvasAdapter();
+};
 
 const REPEAT_COUNTS = new Map([
   ["G", 1],
@@ -910,19 +1011,54 @@ const normalizeGraphicHexRows = (payload, rowBytes, expectedRows, warnings) => {
 };
 
 const normalizeGraphicByteLength = (bytes, targetBytes) => {
-  if (!Buffer.isBuffer(bytes) || !targetBytes) return bytes;
+  if (!(bytes instanceof Uint8Array) || !targetBytes) return bytes;
   if (bytes.length === targetBytes) return bytes;
   if (bytes.length > targetBytes) return bytes.subarray(0, targetBytes);
 
-  const output = Buffer.alloc(targetBytes);
-  bytes.copy(output);
+  const output = new Uint8Array(targetBytes);
+  output.set(bytes);
   return output;
+};
+
+const bytesFromBase64 = (value) => {
+  const normalized = String(value || "").replace(/\s+/g, "");
+  if (typeof Buffer !== "undefined") {
+    return Uint8Array.from(Buffer.from(normalized, "base64"));
+  }
+  if (typeof atob === "function") {
+    const binary = atob(normalized);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+  throw new Error("Base64 decoding is not available in this runtime.");
+};
+
+const bytesFromHex = (value) => {
+  const hex = String(value || "").replace(/\s+/g, "");
+  const bytes = new Uint8Array(Math.floor(hex.length / 2));
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16) || 0;
+  }
+  return bytes;
+};
+
+const inflateZ64Payload = async (compressedBytes) => {
+  if (typeof DecompressionStream !== "undefined" && typeof Blob !== "undefined" && typeof Response !== "undefined") {
+    const stream = new Blob([compressedBytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  const specifier = "node:zlib";
+  const zlib = await import(specifier);
+  return Uint8Array.from(zlib.inflateSync(compressedBytes));
 };
 
 const getGraphicByteCount = (element) =>
   Math.max(element.totalBytes || 0, element.dataBytes || 0, 0);
 
-const decodeGraphicPayload = (element, warnings) => {
+const decodeGraphicPayload = async (element, warnings) => {
   const rowBytes = Math.max(element.rowBytes || 0, 0);
   if (!rowBytes) return null;
   const totalBytes = getGraphicByteCount(element);
@@ -936,7 +1072,7 @@ const decodeGraphicPayload = (element, warnings) => {
     }
     try {
       return normalizeGraphicByteLength(
-        zlib.inflateSync(Buffer.from(match[1].replace(/\s+/g, ""), "base64")),
+        await inflateZ64Payload(bytesFromBase64(match[1])),
         totalBytes
       );
     } catch {
@@ -948,13 +1084,13 @@ const decodeGraphicPayload = (element, warnings) => {
   const expectedRows = totalBytes ? Math.ceil(totalBytes / rowBytes) : 0;
   const rows = normalizeGraphicHexRows(element.data, rowBytes, expectedRows, warnings);
   return normalizeGraphicByteLength(
-    Buffer.from(rows.join("").slice(0, totalBytes ? totalBytes * 2 : undefined), "hex"),
+    bytesFromHex(rows.join("").slice(0, totalBytes ? totalBytes * 2 : undefined)),
     totalBytes
   );
 };
 
-const createImageDataFromGraphic = (ctx, element, warnings) => {
-  const bytes = decodeGraphicPayload(element, warnings);
+const createImageDataFromGraphic = async (ctx, element, warnings) => {
+  const bytes = await decodeGraphicPayload(element, warnings);
   const rowBytes = Math.max(element.rowBytes || 0, 0);
   if (!bytes || !rowBytes) return null;
 
@@ -985,10 +1121,10 @@ const createImageDataFromGraphic = (ctx, element, warnings) => {
   return imageData;
 };
 
-const drawGraphicField = (ctx, element, warnings) => {
-  const imageData = createImageDataFromGraphic(ctx, element, warnings);
+const drawGraphicField = async (ctx, element, warnings, canvasAdapter) => {
+  const imageData = await createImageDataFromGraphic(ctx, element, warnings);
   if (!imageData) return;
-  const tempCanvas = createCanvas(imageData.width, imageData.height);
+  const tempCanvas = canvasAdapter.createCanvas(imageData.width, imageData.height);
   const tempCtx = tempCanvas.getContext("2d");
   tempCtx.putImageData(imageData, 0, 0);
   const xScale = Math.max(element.xScale || 1, 1);
@@ -1104,7 +1240,7 @@ const normalizeQrPayload = (value, fallbackEclevel = "M") => {
 const isOneDimensionalBarcode = (barcodeType) =>
   ["BC", "B3", "BA", "B2", "BE", "BU", "B9", "BK"].includes(barcodeType);
 
-const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
+const renderBarcodeImage = async (element, barcodeDefault, warnings, canvasAdapter) => {
   const bcid = barcodeMap[element.barcodeType];
   if (!bcid) {
     warnings.push(`Unsupported barcode ${element.barcodeType}.`);
@@ -1193,8 +1329,16 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
   }
 
   try {
-    const png = await bwipjs.toBuffer(options);
-    const image = await loadImage(png);
+    let image = null;
+    if (typeof bwipjs.toBuffer === "function") {
+      const png = await bwipjs.toBuffer(options);
+      image = await canvasAdapter.loadImage(png);
+    } else if (typeof bwipjs.toCanvas === "function") {
+      image = canvasAdapter.createCanvas(1, 1);
+      await bwipjs.toCanvas(image, options);
+    } else {
+      throw new Error("bwip-js renderer is not available in this runtime");
+    }
     return { image, drawScaleX, drawScaleY, moduleWidth, separateHumanText, humanText };
   } catch (error) {
     warnings.push(`Barcode ${element.barcodeType} failed: ${error?.message || "render error"}.`);
@@ -1202,8 +1346,8 @@ const renderBarcodeImage = async (element, barcodeDefault, warnings) => {
   }
 };
 
-const drawBarcode = async (ctx, element, barcodeDefault, warnings) => {
-  const rendered = await renderBarcodeImage(element, barcodeDefault, warnings);
+const drawBarcode = async (ctx, element, barcodeDefault, warnings, canvasAdapter) => {
+  const rendered = await renderBarcodeImage(element, barcodeDefault, warnings, canvasAdapter);
   if (!rendered) return;
   const {
     image,
@@ -1258,7 +1402,7 @@ const drawBarcode = async (ctx, element, barcodeDefault, warnings) => {
   ctx.restore();
 };
 
-const drawElement = async (ctx, element, parsed, barcodeDefault, warnings) => {
+const drawElement = async (ctx, element, parsed, barcodeDefault, warnings, canvasAdapter) => {
   if (element.type === "text") {
     drawText(ctx, element);
   } else if (element.type === "box") {
@@ -1270,14 +1414,14 @@ const drawElement = async (ctx, element, parsed, barcodeDefault, warnings) => {
   } else if (element.type === "diagonal") {
     drawDiagonal(ctx, element);
   } else if (element.type === "graphicField") {
-    drawGraphicField(ctx, element, warnings);
+    await drawGraphicField(ctx, element, warnings, canvasAdapter);
   } else if (element.type === "recallGraphic") {
     const resource = parsed.resources.get(element.name);
     if (!resource) {
       warnings.push(`Graphic resource not found: ${element.name}.`);
       return;
     }
-    drawGraphicField(
+    await drawGraphicField(
       ctx,
       {
         ...resource,
@@ -1287,10 +1431,11 @@ const drawElement = async (ctx, element, parsed, barcodeDefault, warnings) => {
         xScale: element.xScale,
         yScale: element.yScale,
       },
-      warnings
+      warnings,
+      canvasAdapter
     );
   } else if (element.type === "barcode") {
-    await drawBarcode(ctx, element, barcodeDefault, warnings);
+    await drawBarcode(ctx, element, barcodeDefault, warnings, canvasAdapter);
   }
 };
 
@@ -1304,7 +1449,8 @@ const resolveCanvasDimension = (options, key, labelValue, physicalValue) => {
 export const renderLabelToCanvas = async (label, parsed, options = {}) => {
   const width = resolveCanvasDimension(options, "width", label.width, label.physicalWidth);
   const height = resolveCanvasDimension(options, "height", label.height, label.physicalHeight);
-  const canvas = createCanvas(width, height);
+  const canvasAdapter = await resolveCanvasAdapter(options);
+  const canvas = canvasAdapter.createCanvas(width, height);
   const ctx = canvas.getContext("2d");
   const warnings = [...(label.warnings || [])];
 
@@ -1320,13 +1466,13 @@ export const renderLabelToCanvas = async (label, parsed, options = {}) => {
   };
 
   for (const element of label.elements) {
-    await drawElement(ctx, element, parsed, barcodeDefault, warnings);
+    await drawElement(ctx, element, parsed, barcodeDefault, warnings, canvasAdapter);
   }
 
   return { canvas, warnings };
 };
 
-export const renderZplToPngBuffer = async (zpl, options = {}) => {
+const resolveLabelForRender = (zpl, options = {}) => {
   const parsed = parseZpl(zpl, options);
   if (!parsed.labels.length) {
     const error = new Error("No labels were found in ZPL payload.");
@@ -1341,16 +1487,22 @@ export const renderZplToPngBuffer = async (zpl, options = {}) => {
     error.code = "INVALID_LABEL_INDEX";
     throw error;
   }
+  return { parsed, labelIndex, label };
+};
 
-  const { canvas, warnings } = await renderLabelToCanvas(label, parsed, options);
-  const buffer = await canvas.encode("png");
-  const labelsMetadata = parsed.labels.map((parsedLabel, index) => ({
+const buildLabelsMetadata = (parsed) =>
+  parsed.labels.map((parsedLabel, index) => ({
     index,
     copies: parsedLabel.metadata?.copies || 1,
     printQuantity: parsedLabel.metadata?.printQuantity || null,
   }));
+
+export const renderZplToCanvas = async (zpl, options = {}) => {
+  const { parsed, labelIndex, label } = resolveLabelForRender(zpl, options);
+  const { canvas, warnings } = await renderLabelToCanvas(label, parsed, options);
+  const labelsMetadata = buildLabelsMetadata(parsed);
   return {
-    buffer,
+    canvas,
     warnings,
     width: canvas.width,
     height: canvas.height,
@@ -1360,6 +1512,17 @@ export const renderZplToPngBuffer = async (zpl, options = {}) => {
       label: labelsMetadata[labelIndex],
       labels: labelsMetadata,
     },
+  };
+};
+
+export const renderZplToPngBuffer = async (zpl, options = {}) => {
+  const canvasAdapter = await resolveCanvasAdapter(options);
+  const result = await renderZplToCanvas(zpl, { ...options, canvasAdapter });
+  const buffer = await canvasAdapter.encodePng(result.canvas);
+  const { canvas, ...pngResult } = result;
+  return {
+    ...pngResult,
+    buffer,
   };
 };
 
@@ -1374,5 +1537,6 @@ export default {
   createLabel,
   parseZpl,
   renderLabelToCanvas,
+  renderZplToCanvas,
   renderZplToPngBuffer,
 };
